@@ -256,7 +256,11 @@ include_directories(${Boost_INCLUDE_DIRS})
 if(BUILD_SHARED_LIBS)
   find_library(CAPSTONE NAMES capstone)
 else()
-  find_library(CAPSTONE NAMES libcapstone.a)
+  if(MSVC)
+    find_library CAPSTONE NAMES capstone.lib)
+  else()
+    find_library(CAPSTONE NAMES libcapstone.a)
+  endif(MSVC AND NOT BUILD_SHARED_LIBS)
 endif()
 
 if(CAPSTONE)
@@ -271,7 +275,7 @@ if(NOT CAPSTONE OR "${CSTOOL_VERSION}" VERSION_LESS "4.0.1")
   message(
     FATAL_ERROR
       " No Capstone installation found.\n"
-      " - If Capstone is not installed, install it from souce.\n"
+      " - If Capstone is not installed, install it from source.\n"
       "   You can get the latest version of Capstone at:\n"
       "       http://www.capstone-engine.org/\n"
       " - If Capstone is installed, make sure the installation location is in your PATH,\n"
