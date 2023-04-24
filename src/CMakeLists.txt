@@ -17,7 +17,7 @@ function(set_common_msvc_options TARGET_NAME)
   target_compile_options(${TARGET_NAME} PRIVATE "-bigobj")
 
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-D_DEBUG>)
-  if(NOT BUILD_SHARED_LIBS)
+  if(BUILD_SHARED_LIBS)
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-MDd>)
   else() 
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-MTd>)
@@ -40,7 +40,7 @@ function(set_common_msvc_options TARGET_NAME)
                          PRIVATE $<$<CONFIG:RelWithDebInfo>:-D_NDEBUG>)
   target_compile_options(${TARGET_NAME}
                          PRIVATE $<$<CONFIG:RelWithDebInfo>:-DNDEBUG>)
-  if(NOT BUILD_SHARED_LIBS)                         
+  if(BUILD_SHARED_LIBS)                         
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-MD>)
   else() 
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-MT>)
@@ -68,8 +68,8 @@ function(set_common_msvc_options TARGET_NAME)
 
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-D_NDEBUG>)
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-DNDEBUG>)
-  
-  if(NOT BUILD_SHARED_LIBS)
+
+  if(BUILD_SHARED_LIBS)
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-MD>)
   else()
     target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-MT>)
