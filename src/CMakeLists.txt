@@ -17,7 +17,12 @@ function(set_common_msvc_options TARGET_NAME)
   target_compile_options(${TARGET_NAME} PRIVATE "-bigobj")
 
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-D_DEBUG>)
-  target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-MDd>)
+  if(NOT BUILD_SHARED_LIBS)
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-MDd>)
+  else() 
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-MTd>)
+  endif(NOT BUILD_SHARED_LIBS)
+
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Debug>:-Ob0>
   )# Disables inline expansion
   target_compile_options(
@@ -35,7 +40,12 @@ function(set_common_msvc_options TARGET_NAME)
                          PRIVATE $<$<CONFIG:RelWithDebInfo>:-D_NDEBUG>)
   target_compile_options(${TARGET_NAME}
                          PRIVATE $<$<CONFIG:RelWithDebInfo>:-DNDEBUG>)
-  target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-MD>)
+  if(NOT BUILD_SHARED_LIBS)                         
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-MD>)
+  else() 
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-MT>)
+  endif(NOT BUILD_SHARED_LIBS)
+
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:RelWithDebInfo>:-O2>
   )# Creates fast code.
   target_compile_options(
@@ -58,7 +68,13 @@ function(set_common_msvc_options TARGET_NAME)
 
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-D_NDEBUG>)
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-DNDEBUG>)
-  target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-MD>)
+  
+  if(NOT BUILD_SHARED_LIBS)
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-MD>)
+  else()
+    target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-MT>)
+  endif(NOT BUILD_SHARED_LIBS)
+
   target_compile_options(${TARGET_NAME} PRIVATE $<$<CONFIG:Release>:-O2>
   )# Creates fast code.
   target_compile_options(

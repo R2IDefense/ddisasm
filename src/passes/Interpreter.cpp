@@ -20,10 +20,6 @@
 //  endorsement should be inferred.
 //
 //===----------------------------------------------------------------------===//
-#include "Interpreter.h"
-
-#include <souffle/CompiledSouffle.h>
-
 #include <boost/dll.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/process/args.hpp>
@@ -31,6 +27,9 @@
 #include <boost/process/environment.hpp>
 #include <boost/process/search_path.hpp>
 #include <boost/process/system.hpp>
+
+#include "Interpreter.h"
+#include <souffle/CompiledSouffle.h>
 
 std::string getInterpreterArch(const gtirb::Module &Module)
 {
