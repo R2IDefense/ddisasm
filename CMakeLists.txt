@@ -33,7 +33,11 @@ option(DDISASM_MIPS_32 "Whether or not MIPS support is built." ON)
 option(DDISASM_X86_32 "Whether or not x86_32 support is built." ON)
 option(DDISASM_X86_64 "Whether or not x86_64 support is built." ON)
 option(DDISASM_SOUFFLE_PROFILING "Whether to generate Souffle profiles." OFF)
+
 option(DDISASM_GENERATE_MANY "Whether to have Souffle generate multiple files."
+       OFF)
+option(DDISASM_RELEASE_VERSION
+       "Whether or not to build Python package versions without dev suffixes."
        OFF)
 
 if(NOT DEFINED DDISASM_BUILD_REVISION)
@@ -168,6 +172,53 @@ if(USING_LIBCPP)
   endif()
 endif()
 
+# Using libstdc++'s std::filesystem in GCC 8 needs to have libstdc++fs linked
+# in. Because one could use libstdc++ with Clang instead of gcc, we detect
+# whether to use the flag by just trying it out.
+check_cxx_source_compiles(
+  "
+  #include <ciso646>
+  int main() {
+    return _GLIBCXX_RELEASE;
+  }
+  "
+  USING_LIBSTDCXX)
+
+if(USING_LIBSTDCXX)
+  include(CMakePushCheckState)
+  cmake_push_check_state(RESET)
+
+  set(CMAKE_REQUIRED_FLAGS -std=c++17)
+  check_cxx_source_compiles(
+    "
+    #include <filesystem>
+    int main() {
+        return std::filesystem::path(\"/\").is_absolute() ? 0 : 1;
+    }
+    "
+    LIBSTDCXX_WORKS_WITHOUT_LIBFS)
+
+  if(NOT LIBSTDCXX_WORKS_WITHOUT_LIBFS)
+    set(CMAKE_REQUIRED_LIBRARIES stdc++fs)
+    check_cxx_source_compiles(
+      "
+      #include <filesystem>
+      int main() {
+        return std::filesystem::path(\"/\").is_absolute() ? 0 : 1;
+      }
+      "
+      LIBSTDCXX_WORKS_WITH_LIBFS)
+
+    if(LIBSTDCXX_WORKS_WITH_LIBFS)
+      set(LIBSTDCXX_FS stdc++fs)
+    else()
+      message(FATAL_ERROR "could not determine how to link std::filesystem")
+    endif()
+  endif()
+
+  cmake_pop_check_state()
+endif()
+
 # ---------------------------------------------------------------------------
 # gtirb
 # ---------------------------------------------------------------------------
@@ -265,7 +316,14 @@ endif()
 
 if(CAPSTONE)
   find_program(CSTOOL "cstool")
-  execute_process(COMMAND "${CSTOOL}" "-v" OUTPUT_VARIABLE CSTOOL_VERSION)
+  # When using conan to install the dependencies but CMake to do the build, the
+  # capstone libraries may not be findable by the loader. Set LD_LIBRARY path to
+  # fix this.
+  get_filename_component(CAPSTONE_LIB_DIR "${CAPSTONE}" DIRECTORY)
+  execute_process(
+    COMMAND ${CMAKE_COMMAND} -E env
+            "LD_LIBRARY_PATH=$ENV{LD_LIBRARY_PATH}:${CAPSTONE_LIB_DIR}" #
+            "${CSTOOL}" "-v" OUTPUT_VARIABLE CSTOOL_VERSION)
   string(REGEX MATCH "v([0-9]+\.[0-9]+\.[0-9]+)" CSTOOL_VERSION
                "${CSTOOL_VERSION}")
   set(CSTOOL_VERSION "${CMAKE_MATCH_1}")
@@ -299,7 +357,7 @@ endif()
 if(ENABLE_CONAN)
   set(LIEF_LIBRARIES CONAN_PKG::lief)
 else()
-  find_package(LIEF 0.12.3 REQUIRED COMPONENTS STATIC)
+  find_package(LIEF 0.13.0 REQUIRED COMPONENTS STATIC)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -351,6 +409,11 @@ endif()
 
 add_subdirectory(src)
 add_subdirectory(doc)
+
+option(DDISASM_RELEASE_VERSION "Build Python ddisasm package." OFF)
+if(DDISASM_BUILD_PYTHON_PACKAGE)
+  add_subdirectory(python)
+endif()
 
 if(DDISASM_ENABLE_TESTS)
   find_program(PYTHON "python3")
