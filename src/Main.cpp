@@ -138,6 +138,9 @@ int main(int argc, char **argv)
         "asm", po::value<std::string>()->implicit_value("-"),
         "Specifies the ASM output file; use to '-' print to stdout")(
         "debug", "generate assembler file with debugging information")(
+        "syntax", po::value<std::string>() ,"The syntax of the assembly file to generate: "
+        "arm, arm64, att, intel, masm, mips32"
+        )(
         "debug-dir", po::value<std::string>(), "location to write CSV files for debugging")(
         "hints", po::value<std::string>(), "location of user-provided hints file")(
         "input-file", po::value<std::string>(), "file to disasemble")(
@@ -380,8 +383,9 @@ int main(int argc, char **argv)
         {
             const std::string &format = gtirb_pprint::getModuleFileFormat(Module);
             const std::string &isa = gtirb_pprint::getModuleISA(Module);
-            const std::string &syntax =
-                gtirb_pprint::getDefaultSyntax(format, isa, ListingMode).value_or("");
+            const std::string &syntax = (vm.count("syntax") == 0 ?
+                    gtirb_pprint::getDefaultSyntax(format, isa, ListingMode).value_or("") :
+                    vm["syntax"].as<std::string>());
             auto target = std::make_tuple(format, isa, syntax);
             pprinter.setTarget(std::move(target));
 

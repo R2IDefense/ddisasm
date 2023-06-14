@@ -36,7 +36,7 @@ RUN refreshenv && cd wip &&git clone -b 2.4 https://github.com/souffle-lang/souf
     cd C:\wip && rmdir /s /q souffle
     
 # Build and Install LIEF
-RUN cd C:\wip && git clone -b 0.12.3 --depth 1 https://github.com/lief-project/LIEF.git &&`
+RUN cd C:\wip && git clone -b 0.13.0 --depth 1 https://github.com/lief-project/LIEF.git &&`
     cd LIEF && cmake -DLIEF_PYTHON_API=OFF -DLIEF_USE_CRT_RELEASE=MT -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -B build -DCMAKE_INSTALL_PREFIX=C:/LIEF `
     -DLIEF_EXAMPLES=OFF -DLIEF_TESTS=OFF -DLIEF_DOC=OFF &&`
     cmake --build build --config Release --target install && cd .. && rmdir /s /q LIEF 
