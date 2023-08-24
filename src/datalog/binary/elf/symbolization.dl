@@ -233,15 +233,15 @@ reg_used_for(EA,Reg,"InferredMain"):-
 main_function(Main_location):-
     inferred_main_function(Main_location).
 
-inferred_special_symbol(EA,"_start","GLOBAL","FUNC","Beg"):-
+inferred_special_symbol(EA,"_start","GLOBAL","HIDDEN","FUNC","Beg"):-
     !binary_type("REL"),
     !symbol(EA,_,"FUNC",_,_,_,_,_,_),
     start_function(EA).
 
-inferred_special_symbol(EA,"__do_global_dtors_aux","LOCAL","FUNC","Beg"):-
+inferred_special_symbol(EA,"__do_global_dtors_aux","LOCAL","DEFAULT","FUNC","Beg"):-
     function_symbol(EA,"__do_global_dtors_aux").
 
-inferred_special_symbol(EA,"__do_global_dtors_aux","LOCAL","FUNC","Beg"):-
+inferred_special_symbol(EA,"__do_global_dtors_aux","LOCAL","DEFAULT","FUNC","Beg"):-
     !function_symbol(EA,"__do_global_dtors_aux"),
     function_inference.function_entry(EA),
     // referenced from .fini_array
@@ -259,12 +259,12 @@ inferred_special_symbol(EA,"__do_global_dtors_aux","LOCAL","FUNC","Beg"):-
     DataRef >= BegData,
     DataRef <= EndData.
 
-inferred_special_symbol(EA,"_DYNAMIC","LOCAL","NONE","Beg"):-
+inferred_special_symbol(EA,"_DYNAMIC","LOCAL","DEFAULT","NONE","Beg"):-
     binary_format("ELF"),
     !symbol(EA,_,_,_,_,_,_,_,"_DYNAMIC"),
     loaded_section(EA,_,".dynamic").
 
-inferred_special_symbol(EA,"_GLOBAL_OFFSET_TABLE_","LOCAL","NONE","Beg"):-
+inferred_special_symbol(EA,"_GLOBAL_OFFSET_TABLE_","LOCAL","DEFAULT","NONE","Beg"):-
     !symbol(_,_,_,_,_,_,_,_,"_GLOBAL_OFFSET_TABLE_"),
     got_reference_pointer(EA).
 
@@ -319,6 +319,9 @@ reloc_type_with_name("PLT32").
 reloc_type_with_name("GOTPCRELX").
 reloc_type_with_name("REX_GOTPCRELX").
 reloc_type_with_name("ABS64").
+reloc_type_with_name("JUMP26").
+reloc_type_with_name("CALL26").
+reloc_type_with_name("JUMP_SLOT").
 
 symbolic_expr_from_relocation(EA,Size/8,Symbol,Addend+Adjustment,TargetEA):-
     binary_format("ELF"),
@@ -337,6 +340,9 @@ Type of relocation possibly with empty Symbol name
 reloc_type_nameless("R32").
 reloc_type_nameless("R64").
 reloc_type_nameless("R32S").
+
+// This relocation can have a named symbol or not
+reloc_type_nameless("PC32").
 
 // Relocation indirectly references a named symbol with an offset from a SECTION symbol.
 symbolic_expr_from_relocation(EA,Size/8,Symbol,0,TargetEA):-
@@ -394,8 +400,8 @@ a single ifunc symbol for each EA.
 
 // We need two symbols, a function symbol and a GNU_IFUNC symbol
 // so we can create a IRELATIVE relocation
-inferred_special_symbol(DestAddr,NameFunc,"GLOBAL","GNU_IFUNC","Beg"),
-inferred_special_symbol(DestAddr,Name,"LOCAL","FUNC","Beg"),
+inferred_special_symbol(DestAddr,NameFunc,"GLOBAL","DEFAULT","GNU_IFUNC","Beg"),
+inferred_special_symbol(DestAddr,Name,"LOCAL","DEFAULT","FUNC","Beg"),
 best_ifunc_symbol(DestAddr,NameFunc):-
     relocation(_,"IRELATIVE","",Dest,_,_,_),
     DestAddr = as(Dest,address),
@@ -453,11 +459,11 @@ best_ifunc_symbol(EA,SymbolName):-
 // these symbols point to the begining and end of the iplt section
 // that contaisn the IRELATIVE relocations
 
-inferred_special_symbol(Beg,"__rela_iplt_start","GLOBAL","NONE","Beg"):-
+inferred_special_symbol(Beg,"__rela_iplt_start","GLOBAL","DEFAULT","NONE","Beg"):-
     loaded_section(Beg,_,".rela.plt"),
     !symbol(_,_,_,_,_,_,_,_,"__rela_iplt_start").
 
-inferred_special_symbol(End,"__rela_iplt_end","GLOBAL","NONE","End"):-
+inferred_special_symbol(End,"__rela_iplt_end","GLOBAL","DEFAULT","NONE","End"):-
     loaded_section(_,End,".rela.plt"),
     !symbol(_,_,_,_,_,_,_,_,"__rela_iplt_end").
 
@@ -483,7 +489,7 @@ abi_intrinsic(End,"__rela_iplt_end"):-
 //   mov RBX,OFFSET __start___libc_atexit
 //   mov RAX,OFFSET __start___libc_atexit+ CONSTANT
 moved_label_class(EAStop,ImmIndexStop,"libc atexit"),
-moved_immediate_candidate(EAStop,ImmIndexStop,ImmediateStopAddr,ImmediateStartAddr):-
+moved_immediate_candidate(EAStop,ImmIndexStop,ImmediateStopAddr,ImmediateStartAddr,Distance):-
     arch.move_reg_imm(EAStart,_,ImmediateStart,_),
     code(EAStart),
     ImmediateStartAddr = as(ImmediateStart, address),
@@ -492,4 +498,5 @@ moved_immediate_candidate(EAStop,ImmIndexStop,ImmediateStopAddr,ImmediateStartAd
     arch.move_reg_imm(EAStop,_,ImmediateStop,ImmIndexStop),
     code(EAStop),
     ImmediateStopAddr = as(ImmediateStop, address),
-    defined_symbol(ImmediateStopAddr,_,_,_,_,_,_,_,"__stop___libc_atexit").
+    defined_symbol(ImmediateStopAddr,_,_,_,_,_,_,_,"__stop___libc_atexit"),
+    Distance = ImmediateStartAddr - ImmediateStopAddr.

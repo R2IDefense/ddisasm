@@ -357,14 +357,14 @@ void buildInferredSymbols(gtirb::Context &Context, gtirb::Module &Module,
     {
         gtirb::Addr Addr;
         std::string Name;
-        std::string Scope, Type;
-        T >> Addr >> Name >> Scope >> Type;
+        std::string Scope, Visibility, Type;
+        T >> Addr >> Name >> Scope >> Visibility >> Type;
         if(!Module.findSymbols(Name))
         {
             gtirb::Symbol *Symbol = Module.addSymbol(Context, Addr, Name);
             if(SymbolInfo)
             {
-                auxdata::ElfSymbolInfo Info = {0, Type, Scope, "DEFAULT", 0};
+                auxdata::ElfSymbolInfo Info = {0, Type, Scope, Visibility, 0};
                 SymbolInfo->insert({Symbol->getUUID(), Info});
             }
             if(SymbolTabIdxInfo)
@@ -1058,50 +1058,50 @@ gtirb::EdgeType getEdgeType(const std::string &type)
     return gtirb::EdgeType::Fallthrough;
 }
 
-void buildCFG(gtirb::Context &context, gtirb::Module &module, souffle::SouffleProgram &Program)
+void buildCFG(gtirb::Context &Context, gtirb::Module &Module, souffle::SouffleProgram &Program)
 {
-    auto &cfg = module.getIR()->getCFG();
-    for(auto &output : *Program.getRelation("cfg_edge"))
+    auto &Cfg = Module.getIR()->getCFG();
+    for(auto &Output : *Program.getRelation("cfg_edge"))
     {
-        gtirb::Addr srcAddr, destAddr;
-        std::string conditional, indirect, type;
-        output >> srcAddr >> destAddr >> conditional >> indirect >> type;
+        gtirb::Addr SrcAddr, DestAddr;
+        std::string Conditional, Indirect, Type;
+        Output >> SrcAddr >> DestAddr >> Conditional >> Indirect >> Type;
 
         // ddisasm guarantees that these blocks exist
-        const gtirb::CodeBlock *src = &*module.findCodeBlocksOn(srcAddr).begin();
-        const gtirb::CodeBlock *dest = &*module.findCodeBlocksOn(destAddr).begin();
+        const gtirb::CodeBlock *Src = &*Module.findCodeBlocksOn(SrcAddr).begin();
+        const gtirb::CodeBlock *Dest = &*Module.findCodeBlocksOn(DestAddr).begin();
 
-        auto isConditional = conditional == "true" ? gtirb::ConditionalEdge::OnTrue
+        auto IsConditional = Conditional == "true" ? gtirb::ConditionalEdge::OnTrue
                                                    : gtirb::ConditionalEdge::OnFalse;
-        auto isIndirect =
-            indirect == "true" ? gtirb::DirectEdge::IsIndirect : gtirb::DirectEdge::IsDirect;
-        gtirb::EdgeType edgeType = getEdgeType(type);
+        auto IsIndirect =
+            Indirect == "true" ? gtirb::DirectEdge::IsIndirect : gtirb::DirectEdge::IsDirect;
+        gtirb::EdgeType edgeType = getEdgeType(Type);
 
-        auto E = addEdge(src, dest, cfg);
-        cfg[*E] = std::make_tuple(isConditional, isIndirect, edgeType);
+        auto E = addEdge(Src, Dest, Cfg);
+        Cfg[*E] = std::make_tuple(IsConditional, IsIndirect, edgeType);
     }
-    auto *topBlock = module.addProxyBlock(context);
-    for(auto &output : *Program.getRelation("cfg_edge_to_top"))
+    auto *TopBlock = Module.addProxyBlock(Context);
+    for(auto &Output : *Program.getRelation("cfg_edge_to_top"))
     {
-        gtirb::Addr srcAddr;
-        std::string conditional, type;
-        output >> srcAddr >> conditional >> type;
-        const gtirb::CodeBlock *src = &*module.findCodeBlocksOn(srcAddr).begin();
-        auto isConditional = conditional == "true" ? gtirb::ConditionalEdge::OnTrue
+        gtirb::Addr SrcAddr;
+        std::string Conditional, Type;
+        Output >> SrcAddr >> Conditional >> Type;
+        const gtirb::CodeBlock *Src = &*Module.findCodeBlocksOn(SrcAddr).begin();
+        auto isConditional = Conditional == "true" ? gtirb::ConditionalEdge::OnTrue
                                                    : gtirb::ConditionalEdge::OnFalse;
-        gtirb::EdgeType edgeType = getEdgeType(type);
-        auto E = addEdge(src, topBlock, cfg);
-        cfg[*E] = std::make_tuple(isConditional, gtirb::DirectEdge::IsIndirect, edgeType);
+        gtirb::EdgeType EdgeType = getEdgeType(Type);
+        auto E = addEdge(Src, TopBlock, Cfg);
+        Cfg[*E] = std::make_tuple(isConditional, gtirb::DirectEdge::IsIndirect, EdgeType);
     }
     for(auto &T : *Program.getRelation("cfg_edge_to_symbol"))
     {
         gtirb::Addr EA;
         std::string Name;
-        std::string Type;
-        T >> EA >> Name >> Type;
+        std::string Conditional, Indirect, Type;
+        T >> EA >> Name >> Conditional >> Indirect >> Type;
 
-        const gtirb::CodeBlock *CodeBlock = &*module.findCodeBlocksOn(EA).begin();
-        auto It = module.findSymbols(Name);
+        const gtirb::CodeBlock *CodeBlock = &*Module.findCodeBlocksOn(EA).begin();
+        auto It = Module.findSymbols(Name);
         if(It.empty())
         {
             std::cerr << "WARNING: failed to find symbols for " << Name << " in cfg_edge_to_symbol("
@@ -1110,17 +1110,34 @@ void buildCFG(gtirb::Context &context, gtirb::Module &module, souffle::SoufflePr
         }
 
         gtirb::Symbol &Symbol = *It.begin();
-        gtirb::ProxyBlock *ExternalBlock = Symbol.getReferent<gtirb::ProxyBlock>();
+        gtirb::CfgNode *ExternalBlock = Symbol.getReferent<gtirb::ProxyBlock>();
         if(!ExternalBlock)
         {
-            // Create a ProxyBlock if the symbol does not already reference one.
-            ExternalBlock = module.addProxyBlock(context);
-            Symbol.setReferent(ExternalBlock);
+            gtirb::CodeBlock *TgtCodeBlock = Symbol.getReferent<gtirb::CodeBlock>();
+            if(TgtCodeBlock)
+            {
+                std::cerr
+                    << "WARNING: symbol " << Name
+                    << " expected to be undefined, but it is attached to code block at address"
+                    << TgtCodeBlock->getAddress() << std::endl;
+                ExternalBlock = TgtCodeBlock;
+            }
+            else
+            {
+                // Create a ProxyBlock if the symbol does not already reference one.
+                gtirb::ProxyBlock *NewProxyBlock = Module.addProxyBlock(Context);
+                Symbol.setReferent(NewProxyBlock);
+                ExternalBlock = NewProxyBlock;
+            }
         }
 
+        auto IsConditional = Conditional == "true" ? gtirb::ConditionalEdge::OnTrue
+                                                   : gtirb::ConditionalEdge::OnFalse;
+        auto IsIndirect =
+            Indirect == "true" ? gtirb::DirectEdge::IsIndirect : gtirb::DirectEdge::IsDirect;
         gtirb::EdgeType EdgeType = getEdgeType(Type);
-        auto E = addEdge(CodeBlock, ExternalBlock, cfg);
-        cfg[*E] = {gtirb::ConditionalEdge::OnFalse, gtirb::DirectEdge::IsIndirect, EdgeType};
+        auto E = addEdge(CodeBlock, ExternalBlock, Cfg);
+        Cfg[*E] = {IsConditional, IsIndirect, EdgeType};
     }
 }
 
@@ -1450,6 +1467,44 @@ void updateEntryPoint(gtirb::Module &module, souffle::SouffleProgram &Program)
     }
 }
 
+void buildDynamicAuxdata(gtirb::Module &Module)
+{
+    auto DynamicEntries = Module.getAuxData<gtirb::schema::DynamicEntries>();
+    if(DynamicEntries)
+    {
+        for(auto &[Key, Value] : *DynamicEntries)
+        {
+            if(Key == "INIT")
+            {
+                auto CB = Module.findCodeBlocksAt(gtirb::Addr(Value));
+                if(CB.empty())
+                {
+                    std::cerr << "WARNING: No code block created at DT_INIT\n";
+                }
+                else
+                {
+                    gtirb::UUID UUID = CB.begin()->getUUID();
+                    Module.addAuxData<gtirb::schema::ElfDynamicInit>(std::move(UUID));
+                }
+            }
+            else if(Key == "FINI")
+            {
+                auto CB = Module.findCodeBlocksAt(gtirb::Addr(Value));
+                if(CB.empty())
+                {
+                    std::cerr << "WARNING: No code block created at DT_FINI\n";
+                    continue;
+                }
+                else
+                {
+                    gtirb::UUID UUID = CB.begin()->getUUID();
+                    Module.addAuxData<gtirb::schema::ElfDynamicFini>(std::move(UUID));
+                }
+            }
+        }
+    }
+}
+
 void shiftThumbBlocks(gtirb::Module &Module)
 {
     // Find thumb code blocks.
@@ -1534,6 +1589,7 @@ void disassembleModule(gtirb::Context &Context, gtirb::Module &Module,
     buildCFG(Context, Module, Program);
     buildPadding(Module, Program);
     buildComments(Module, Program, SelfDiagnose);
+    buildDynamicAuxdata(Module);
     updateEntryPoint(Module, Program);
     removeSymbolVersionsFromNames(Module);
     buildArchInfo(Module, Program);
@@ -1575,19 +1631,40 @@ void performSanityChecks(AnalysisPassResult &Result, souffle::SouffleProgram &Pr
         }
     }
     auto blockOverlap = Program.getRelation("block_still_overlap");
-    if(blockOverlap->size() > 0)
+    for(auto &output : *blockOverlap)
     {
         std::stringstream ErrMsg;
-        ErrMsg << "The conflicts between the following code blocks could not be resolved:\n";
-        for(auto &output : *blockOverlap)
-        {
-            uint64_t Block1, Block2, Size1, Size2;
-            std::string BlockKind1, BlockKind2;
-            output >> Block1 >> BlockKind1 >> Size1 >> Block2 >> BlockKind2 >> Size2;
-            ErrMsg << std::hex << Block1 << " (" << BlockKind1 << ", " << Size1 << " bytes) - "
-                   << Block2 << " (" << BlockKind2 << ", " << Size2 << " bytes)" << std::dec
-                   << "\n";
-        }
+        uint64_t Block1, Block2, Size1, Size2;
+        std::string BlockKind1, BlockKind2;
+        output >> Block1 >> BlockKind1 >> Size1 >> Block2 >> BlockKind2 >> Size2;
+        ErrMsg << "The following code blocks have equal points and remain overlapping: \n"
+               << "\t" << BlockKind1 << " at 0x" << std::hex << Block1 << ", " << std::dec << Size1
+               << " bytes\n"
+               << "\t" << BlockKind2 << " at 0x" << std::hex << Block2 << ", " << std::dec << Size2
+               << " bytes\n"
+               << "\n\tTo select one of the blocks, re-run ddisasm with hints, e.g.:\n"
+               << "\t$ printf 'disassembly.known_block\\t0x" << std::hex << Block1 << "\\t"
+               << BlockKind1 << "\\t" << std::dec << Size1 << "\\thint\\n' >> hints.csv\n"
+               << "\t$ ddisasm --hints ./hints.csv [...]\n";
         Messages.push_back(ErrMsg.str());
+    }
+
+    auto intervalScheduleTie = Program.getRelation("interval_schedule_tie");
+    for(auto &output : *intervalScheduleTie)
+    {
+        std::stringstream WarnMsg;
+        uint64_t StartA, BlockA, SizeA, StartB, BlockB, SizeB;
+        std::string BlockKindA, BlockKindB;
+        output >> BlockA >> BlockKindA >> SizeA >> BlockB >> BlockKindB >> SizeB;
+        WarnMsg << "The following block intervals have equal weights (interval scheduling): \n"
+                << "\t" << BlockKindA << " at 0x" << std::hex << BlockA << ", " << std::dec << SizeA
+                << " bytes (selected)\n"
+                << "\t" << BlockKindB << " at 0x" << std::hex << BlockB << ", " << std::dec << SizeB
+                << " bytes (not selected)\n"
+                << "\n\tTo select the other block, re-run ddisasm with hints, e.g.:\n"
+                << "\t$ printf 'disassembly.known_block\\t0x" << std::hex << BlockB << "\\t"
+                << BlockKindB << "\\t" << std::dec << SizeB << "\\thint\\n' >> hints.csv\n"
+                << "\t$ ddisasm --hints ./hints.csv [...]\n";
+        Result.Warnings.push_back(WarnMsg.str());
     }
 }

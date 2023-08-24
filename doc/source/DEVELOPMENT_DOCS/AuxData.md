@@ -1,3 +1,5 @@
+# AuxData Documentation
+
 GTIRB [Auxiliary Data][1] (`AuxData`) tables are a value-store for arbitrary
 user-defined analysis data. GTIRB defines a number of `AuxData` tables with
 stable schemata that are recommended for all GTIRB users as [Sanctioned][2]
@@ -14,7 +16,6 @@ tables:
 [2]: https://grammatech.github.io/gtirb/md__aux_data.html#sanctioned-auxdata-tables
 [3]: https://grammatech.github.io/gtirb/md__aux_data.html#provisional-auxdata-tables
 
-## General
 
 ## ddisasmVersion
 
@@ -39,9 +40,8 @@ compiled on commit `8533031c` with support for the `X64` ISA.
 |  Type | `std::vector<std::string>`         |
 | Value | A list of binary type descriptors. |
 
-ELF binaries have either a `DYN` (PIE) or `EXEC` entry. PE binaries have either
-a `DLL` or `EXE` entry and optionally a [subsystem][SUBSYSTEM] descriptor (e.g.
-`WINDOWS_GUI`).
+ELF binaries have either a [`DYN`,`PIE`] or [`DYN`,`SHARED`] or [`EXEC`] or [`REL`] entry.
+ PE binaries have either a [`DLL`] or [`EXE`] entry and optionally a [subsystem][SUBSYSTEM] descriptor (e.g. `WINDOWS_GUI`).
 
 [SUBSYSTEM]: https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#windows-subsystem
 
@@ -365,6 +365,24 @@ Note: Relation names are namespaced with the name of the pass in which they belo
 |  Name | **sectionIndex**                               |
 |  Type | `std::map<uint64_t, gtirb::UUID>`              |
 | Value | Map from ELF section indices to section UUIDs. |
+
+### elfDynamicInit
+
+`sanctioned`
+
+| <!-- --> | <!-- -->                                           |
+|----------|----------------------------------------------------|
+| Label    | ```"elfDynamicInit"```                             |
+| Type     | ```gtirb::UUID```                                  |
+| Note     | The CodeBlock to which a DT_INIT entry in an ELF file's .dynamic section refers. |
+
+### elfDynamicFini
+
+| <!-- --> | <!-- -->                                           |
+|----------|----------------------------------------------------|
+| Label    | ```"elfDynamicFini"```                             |
+| Type     | ```gtirb::UUID```                                  |
+| Note     | The CodeBlock to which a DT_FINI entry in an ELF file's .dynamic section refers. |
 
 ## elfSymbolInfo
 

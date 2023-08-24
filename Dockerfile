@@ -166,7 +166,12 @@ COPY --from=gtirb-pprinter /usr/local/include /usr/local/include
 COPY .git/ /usr/local/src/ddisasm/.git
 COPY doc/ /usr/local/src/ddisasm/doc/
 COPY src/ /usr/local/src/ddisasm/src/
-COPY README.md CMakeLists.txt CMakeLists.googletest version.txt /usr/local/src/ddisasm/
+COPY CMakeLists.txt \
+     CMakeLists.googletest \
+     LICENSE.txt \
+     README.md \
+     version.txt \
+     /usr/local/src/ddisasm/
 RUN cmake -DCMAKE_BUILD_TYPE=Release -DDDISASM_GENERATE_MANY=ON /usr/local/src/ddisasm -B/usr/local/src/ddisasm/build
 RUN cmake --build /usr/local/src/ddisasm/build -j$(nproc) --target all install
 
@@ -185,6 +190,11 @@ COPY --from=ddisasm /usr/local/lib/libgtirb_pprinter.so* /usr/local/lib/
 COPY --from=ddisasm /lib/x86_64-linux-gnu/libprotobuf.so* /lib/x86_64-linux-gnu/
 COPY --from=ddisasm /usr/local/bin/ddisasm /usr/local/bin/
 COPY --from=ddisasm /usr/local/bin/gtirb* /usr/local/bin/
+
+# gcc is needed to rebuild binaries with gtirb-pprinter
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
+        gcc \
+        libc6-dev
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
 

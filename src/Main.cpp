@@ -154,7 +154,8 @@ int main(int argc, char **argv)
         "Skip additional analyses to compute more precise function boundaries.")(
         "with-souffle-relations", "Package facts/output relations into an AuxData table.")(
         "no-cfi-directives",
-        "Do not produce cfi directives. Instead it produces symbolic expressions in .eh_frame.")(
+        "Do not produce cfi directives. Instead it produces symbolic expressions in .eh_frame "
+        "(this functionality is experimental and does not produce reliable results).")(
         "threads,j", po::value<unsigned int>()->default_value(1), "Number of cores to use.")(
         "generate-import-libs", "Generated .DEF and .LIB files for imported libraries (PE).")(
         "generate-resources", "Generated .RES files for embedded resources (PE).")(
@@ -363,15 +364,18 @@ int main(int argc, char **argv)
     // Output PE-specific build artifacts.
     if(isPEFormat(*GTIRB->IR))
     {
-        if(vm.count("generate-import-libs"))
+        for(auto &Module : Modules)
         {
-            gtirb_bprint::PeBinaryPrinter BP(pprinter, {}, {});
-            BP.libs(*GTIRB->IR);
-        }
-        if(vm.count("generate-resources"))
-        {
-            gtirb_bprint::PeBinaryPrinter BP(pprinter, {}, {});
-            BP.resources(*GTIRB->IR, *GTIRB->Context);
+            if(vm.count("generate-import-libs"))
+            {
+                gtirb_bprint::PeBinaryPrinter BP(pprinter, {}, {});
+                BP.libs(Module);
+            }
+            if(vm.count("generate-resources"))
+            {
+                gtirb_bprint::PeBinaryPrinter BP(pprinter, {}, {});
+                BP.resources(Module, *GTIRB->Context);
+            }
         }
     }
 

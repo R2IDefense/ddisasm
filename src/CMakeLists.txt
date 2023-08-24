@@ -154,6 +154,7 @@ set(DATALOG_BASE_SOURCES
     datalog/binary/elf/elf_binaries.dl
     datalog/binary/elf/exceptions.dl
     datalog/binary/elf/relocations.dl
+    datalog/binary/elf/symbolization.dl
     datalog/binary/elf/tls.dl
     datalog/binary/pe/pe_binaries.dl
     datalog/binary/pe/exceptions.dl
@@ -171,7 +172,7 @@ set(DATALOG_BASE_SOURCES
     datalog/jump_tables.dl
     datalog/main.dl
     datalog/noreturn.dl
-    datalog/pointer_reatribution.dl
+    datalog/pointer_reattribution.dl
     datalog/register_type_analysis.dl
     datalog/relative_jump_tables.dl
     datalog/symbols.dl

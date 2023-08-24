@@ -1,6 +1,7 @@
 import os
 import platform
 import unittest
+import re
 import subprocess
 from disassemble_reassemble_check import (
     compile,
@@ -12,6 +13,7 @@ from disassemble_reassemble_check import (
 )
 from pathlib import Path
 from typing import Optional, Tuple
+from gtirb.cfg import EdgeType
 import gtirb
 
 if platform.system() == "Linux":
@@ -41,11 +43,11 @@ class LibrarySymbolsTests(unittest.TestCase):
             m = ir_library.modules[0]
 
             # foo is a symbol pointing to a code block
-            foo = [s for s in m.symbols if s.name == "foo"][0]
+            foo = next(m.symbols_named("foo"))
             assert isinstance(foo.referent, gtirb.CodeBlock)
 
             # bar calls through the plt
-            bar = [s for s in m.symbols if s.name == "bar"][0]
+            bar = next(m.symbols_named("bar"))
             bar_block = bar.referent
             callee = [
                 e.target
@@ -62,7 +64,7 @@ class IFuncSymbolsTests(unittest.TestCase):
     @unittest.skipUnless(
         platform.system() == "Linux", "This test is linux only."
     )
-    def test_symbols_through_plt(self):
+    def test_gnu_indirect_function(self):
         """
         Test a binary that calls a local method defined as
         gnu_indirect_function through plt and check if the local symbol is
@@ -97,6 +99,50 @@ class IFuncSymbolsTests(unittest.TestCase):
 
 
 class OverlappingInstructionTests(unittest.TestCase):
+    def subtest_lock_cmpxchg(self, example: str):
+        """
+        Subtest body for test_lock_cmpxchg
+        """
+        binary = "ex"
+        self.assertTrue(compile("gcc", "g++", "-O0", []))
+        gtirb_file = "ex.gtirb"
+        self.assertTrue(disassemble(binary, gtirb_file, format="--ir")[0])
+
+        ir_library = gtirb.IR.load_protobuf(gtirb_file)
+        m = ir_library.modules[0]
+
+        main_sym = next(m.symbols_named("main"))
+        main_block = main_sym.referent
+
+        self.assertIsInstance(main_block, gtirb.CodeBlock)
+
+        # find the lock cmpxchg instruction - ensure it exists and is
+        # reachable from main
+        block = main_block
+        inst_prefix_op = b"\xf0\x48\x0f\xb1"
+        fallthru_count = 0
+        fallthru_max = 5
+        blocks = [main_block]
+        while block.contents[: len(inst_prefix_op)] != inst_prefix_op:
+            if fallthru_count == fallthru_max:
+                trace = " -> ".join([hex(b.address) for b in blocks])
+                msg = "exceeded max fallthru searching for lock cmpxchg: {}"
+                self.fail(msg.format(trace))
+            try:
+                block = next(
+                    e
+                    for e in block.outgoing_edges
+                    if e.label.type == gtirb.Edge.Type.Fallthrough
+                ).target
+            except StopIteration:
+                self.fail("lock cmpxchg is not a code block")
+
+            self.assertIsInstance(block, gtirb.CodeBlock)
+            blocks.append(block)
+            fallthru_count += 1
+
+        self.assertEqual(len(list(block.incoming_edges)), 1)
+
     @unittest.skipUnless(
         platform.system() == "Linux", "This test is linux only."
     )
@@ -107,21 +153,14 @@ class OverlappingInstructionTests(unittest.TestCase):
         At 0x0, lock cmpxchg
         At 0x1,      cmpxchg
         """
+        examples = (
+            "ex_overlapping_instruction",
+            "ex_overlapping_instruction_2",
+        )
 
-        binary = "ex"
-        with cd(ex_asm_dir / "ex_overlapping_instruction"):
-
-            self.assertTrue(compile("gcc", "g++", "-O0", []))
-            gtirb_file = "ex.gtirb"
-            self.assertTrue(disassemble(binary, gtirb_file, format="--ir")[0])
-
-            ir_library = gtirb.IR.load_protobuf(gtirb_file)
-            m = ir_library.modules[0]
-
-            main_sym = next(sym for sym in m.symbols if sym.name == "main")
-            main_block = main_sym.referent
-            self.assertIsInstance(main_block, gtirb.CodeBlock)
-            self.assertEqual(len(list(main_block.outgoing_edges)), 1)
+        for example in examples:
+            with self.subTest(example=example), cd(ex_asm_dir / example):
+                self.subtest_lock_cmpxchg(example)
 
 
 class AuxDataTests(unittest.TestCase):
@@ -158,14 +197,112 @@ class AuxDataTests(unittest.TestCase):
                     break
             self.assertTrue(found)
 
-            # check that we move misaligned directives to function start
-            bar_symbol = list(m.symbols_named("bar"))[0]
-            bar_block = bar_symbol.referent
-            self.assertIsNotNone(bar_block)
-            cfi_at_bar_start = [
-                directive[0] for directive in cfi[gtirb.Offset(bar_block, 0)]
-            ]
-            self.assertIn(".cfi_startproc", cfi_at_bar_start)
+    @unittest.skipUnless(
+        platform.system() == "Linux", "This test is linux only."
+    )
+    def test_dyn_shared(self):
+        """
+        Test that binary types for DYN SHARED are correctly generated.
+        """
+        binary = "fun.so"
+        with cd(ex_dir / "ex_dyn_library"):
+            self.assertTrue(compile("gcc", "g++", "-O0", []))
+            self.assertTrue(disassemble(binary, format="--ir")[0])
+
+            ir_library = gtirb.IR.load_protobuf(binary + ".gtirb")
+            m = ir_library.modules[0]
+            dyn = m.aux_data["binaryType"].data
+
+            self.assertIn("DYN", dyn)
+            self.assertIn("SHARED", dyn)
+            self.assertNotIn("PIE", dyn)
+
+    @unittest.skipUnless(
+        platform.system() == "Linux", "This test is linux only."
+    )
+    def test_dyn_pie(self):
+        """
+        Test that binary types for DYN PIE are correctly generated.
+        """
+        binary = "ex"
+        with cd(ex_asm_dir / "ex_plt_nop"):
+            self.assertTrue(compile("gcc", "g++", "-O0", []))
+            self.assertTrue(disassemble(binary, format="--ir")[0])
+
+            ir_library = gtirb.IR.load_protobuf(binary + ".gtirb")
+            m = ir_library.modules[0]
+            dyn = m.aux_data["binaryType"].data
+
+            self.assertIn("DYN", dyn)
+            self.assertIn("PIE", dyn)
+            self.assertNotIn("SHARED", dyn)
+
+    @unittest.skipUnless(
+        platform.system() == "Linux", "This test is linux only."
+    )
+    def test_dyn_none(self):
+        """
+        Test that binary types for non-DYN are correctly generated.
+        """
+        binary = "ex"
+        with cd(ex_asm_dir / "ex_moved_label"):
+            self.assertTrue(compile("gcc", "g++", "-O0", []))
+            self.assertTrue(disassemble(binary, format="--ir")[0])
+
+            ir_library = gtirb.IR.load_protobuf(binary + ".gtirb")
+            m = ir_library.modules[0]
+            dyn = m.aux_data["binaryType"].data
+
+            self.assertIn("EXEC", dyn)
+            self.assertNotIn("DYN", dyn)
+            self.assertNotIn("PIE", dyn)
+            self.assertNotIn("SHARED", dyn)
+
+    @unittest.skipUnless(
+        platform.system() == "Linux", "This test is linux only."
+    )
+    def test_misaligned_fde(self):
+        """
+        Test that misaligned_fde_start is correctly generated.
+        """
+        binary = "ex"
+        modes = [
+            False,  # no strip
+            True,  # strip
+        ]
+
+        for mode in modes:
+            with self.subTest(mode=mode):
+                with cd(ex_asm_dir / "ex_misaligned_fde"):
+                    self.assertTrue(compile("gcc", "g++", "-O0", []))
+                    self.assertTrue(
+                        disassemble(binary, format="--ir", strip=mode)[0]
+                    )
+
+                    ir_library = gtirb.IR.load_protobuf(binary + ".gtirb")
+                    m = ir_library.modules[0]
+
+                    main_sym = next(m.symbols_named("main"))
+                    main_block = main_sym.referent
+                    outedges = [
+                        edge
+                        for edge in main_block.outgoing_edges
+                        if edge.label.type == EdgeType.Fallthrough
+                    ]
+                    self.assertEqual(1, len(outedges))
+                    block = outedges[0].target
+                    # LEA should have a symbolic expression.
+                    # If `bar` is not recognized as misaligned_fde_start,
+                    # the LEA will be missing a symbolic expression.
+                    self.assertTrue(
+                        list(
+                            m.symbolic_expressions_at(
+                                range(
+                                    block.address, block.address + block.size
+                                )
+                            )
+                        )
+                    )
 
     @unittest.skipUnless(
         platform.system() == "Linux", "This test is linux only."
@@ -215,41 +352,57 @@ class AuxDataTests(unittest.TestCase):
             # compare the relations directories
             subprocess.check_call(["diff", "dbg", "aux"])
 
+    def assert_regex_match(self, text, pattern):
+        """
+        Like unittest's assertRegex, but also return the match object on
+        success.
 
-class MovedLabelTests(unittest.TestCase):
+        assertRegex provides a nice output on failure, but doesn't return the
+        match object, so we assert, and then search.
+        """
+        compiled = re.compile(pattern)
+        self.assertRegex(text, compiled)
+        return re.search(compiled, text)
+
     @unittest.skipUnless(
         platform.system() == "Linux", "This test is linux only."
     )
-    def test_moved_label(self):
+    def test_dynamic_init_fini(self):
         """
-        Test that labels are correctly moved.
+        Test generating auxdata from DT_INIT and DT_FINI dynamic entries
         """
-
         binary = "ex"
-        with cd(ex_asm_dir / "ex_moved_label"):
-            self.assertTrue(compile("gcc", "g++", "-Os", []))
+        with cd(ex_dir / "ex_dynamic_initfini"):
+            self.assertTrue(compile("gcc", "g++", "-O0", []))
+
+            # Ensure INIT / FINI are present (so that this breaks if compiler
+            # behavior changes in the future)
+            readelf = subprocess.run(
+                ["readelf", "--dynamic", binary],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            template = r"0x[0-9a-f]+\s+\({}\)\s+(0x[0-9a-f]+)"
+            init_match = self.assert_regex_match(
+                readelf.stdout, template.format("INIT")
+            )
+            fini_match = self.assert_regex_match(
+                readelf.stdout, template.format("FINI")
+            )
+
             self.assertTrue(disassemble(binary, format="--ir")[0])
 
-            ir_library = gtirb.IR.load_protobuf(binary + ".gtirb")
-            m = ir_library.modules[0]
+            ir = gtirb.IR.load_protobuf(binary + ".gtirb")
+            m = ir.modules[0]
+            init = m.aux_data["elfDynamicInit"].data
+            fini = m.aux_data["elfDynamicFini"].data
 
-            symbol_of_interest = [s for s in m.symbols if s.name == "point.1"][
-                0
-            ]
-            assert isinstance(symbol_of_interest.referent, gtirb.CodeBlock)
+            self.assertIsInstance(init, gtirb.CodeBlock)
+            self.assertIsInstance(fini, gtirb.CodeBlock)
 
-            block = symbol_of_interest.referent
-            bi = block.byte_interval
-            sexpr = set(
-                bi.symbolic_expressions_at(
-                    range(block.address, block.address + block.size)
-                )
-            )
-            self.assertEqual(len(sexpr), 1)
-            se1 = next(iter(sexpr))[2]
-            assert isinstance(se1, gtirb.SymAddrConst)
-            self.assertEqual(se1.symbol.name, "point.2")
-            self.assertEqual(se1.offset, 22)
+            self.assertEqual(int(init_match.group(1), 16), init.address)
+            self.assertEqual(int(fini_match.group(1), 16), fini.address)
 
 
 class RawGtirbTests(unittest.TestCase):
@@ -374,7 +527,7 @@ class SymbolSelectionTests(unittest.TestCase):
         with symbol 'block_name' points to a symbol with
         name 'target_name'
         """
-        sym = next(s for s in m.symbols if s.name == block_name)
+        sym = next(m.symbols_named(block_name))
         self.assertIsInstance(sym.referent, gtirb.CodeBlock)
         block = sym.referent
         sexpr = sorted(
@@ -409,12 +562,14 @@ class SymbolSelectionTests(unittest.TestCase):
             self.check_first_sym_expr(m, "Block_bye", "bye_obj")
 
             # check symbols at the end of sections
-            syms = [
-                s
-                for s in m.symbols
-                if s.name
-                in ["__init_array_end", "end_of_data_section", "edata", "_end"]
-            ]
+            syms = []
+            for s in [
+                "__init_array_end",
+                "end_of_data_section",
+                "edata",
+                "_end",
+            ]:
+                syms += m.symbols_named(s)
             self.assertTrue(all(s.at_end for s in syms))
 
             # check chosen function names
@@ -471,7 +626,7 @@ class ElfSymbolAuxdataTests(unittest.TestCase):
             self.assertIn((["libfoo.so"], VER_FLG_BASE), defs.values())
 
             foo_symbols = sorted(
-                [sym for sym in m.symbols if sym.name == "foo"],
+                m.symbols_named("foo"),
                 key=lambda x: x.referent.address,
             )
             self.assertEqual(len(foo_symbols), 3)
@@ -495,7 +650,7 @@ class ElfSymbolAuxdataTests(unittest.TestCase):
             self.assertTrue(symver_entries[foo2][1])
             self.assertFalse(symver_entries[foo3][1])
 
-            bar_symbols = [sym for sym in m.symbols if sym.name == "bar"]
+            bar_symbols = m.symbols_named("bar")
 
             bar1, bar2 = bar_symbols
             # Check needed symbol versions
@@ -644,6 +799,43 @@ class OutputTests(unittest.TestCase):
 
                     self.assertEqual(proc.returncode, 1)
                     self.assertIn(b"Error: failed to open file", proc.stderr)
+
+
+class NpadTests(unittest.TestCase):
+    @unittest.skipUnless(
+        platform.system() == "Windows"
+        and os.environ.get("VSCMD_ARG_TGT_ARCH") == "x86",
+        "This test is Windows (x86) only.",
+    )
+    def test_npad_data_in_code(self):
+        with cd(ex_asm_dir / "ex_npad"):
+            subprocess.run(make("clean"), stdout=subprocess.DEVNULL)
+
+            # Build assembly test case for all legacy npad macros.
+            subprocess.run(make("all"), stdout=subprocess.DEVNULL)
+
+            # Disassemble to GTIRB file.
+            self.assertTrue(disassemble("ex.exe", format="--ir")[0])
+
+            # Reassemble test case.
+            proc = subprocess.run(
+                ["gtirb-pprinter", "-b", "ex.exe", "ex.exe.gtirb"]
+            )
+            self.assertEqual(proc.returncode, 0)
+
+            # Check reassembled outputs.
+            self.assertTrue(test())
+
+            # Load the GTIRB file and check padding.
+            ir = gtirb.IR.load_protobuf("ex.exe.gtirb")
+            module = ir.modules[0]
+            table = module.aux_data["padding"].data
+            padding = sorted(
+                (k.element_id.address + k.displacement, v)
+                for k, v in table.items()
+            )
+            sizes = [n for _, n in padding]
+            self.assertEqual(sizes, list(range(1, 16)))
 
 
 if __name__ == "__main__":

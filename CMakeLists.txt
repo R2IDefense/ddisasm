@@ -421,10 +421,40 @@ if(DDISASM_ENABLE_TESTS)
   add_test(
     NAME python_tests
     COMMAND
-      ${PYTHON} -u -m unittest discover tests "*_test.py"
+      ${PYTHON} -u -m unittest discover tests "*_test.py" -v
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/")
 endif()
 
+# ---------------------------------------------------------------------------
+# Package policy enforcement
+# ---------------------------------------------------------------------------
+
+if(DDISASM_PACKAGE_POLICY)
+  set(PACKAGE_POLICY ${DDISASM_PACKAGE_POLICY})
+elseif(ENABLE_CONAN OR WIN32)
+  set(PACKAGE_POLICY conan)
+else()
+  set(PACKAGE_POLICY unix)
+endif()
+
+if(PACKAGE_POLICY STREQUAL "unix")
+
+  # Provides copyright file for Unix packages.
+  install(
+    FILES ${CMAKE_SOURCE_DIR}/LICENSE.txt
+    COMPONENT license
+    DESTINATION share/doc/ddisasm
+    RENAME copyright)
+
+elseif(PACKAGE_POLICY STREQUAL "conan")
+
+  # Provides LICENSE.txt for Conan packages
+  install(
+    FILES ${CMAKE_SOURCE_DIR}/LICENSE.txt
+    COMPONENT license
+    DESTINATION licenses)
+
+endif()
 # ---------------------------------------------------------------------------
 # Package generation with cpack
 # ---------------------------------------------------------------------------

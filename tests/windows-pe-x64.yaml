@@ -24,6 +24,15 @@ default: &default
     strip_exe: "strip-dummy" # We do not apply strip for Windows binaries
     strip: false
     skip: false
+    cfg_checks:
+      # - unreachable
+      # - unresolved_branch
+      - cfg_empty
+      #  - main_is_code
+      - decode_mode_matches_arch
+      - outgoing_edges
+      - edge_instruction_group
+      - cfg_completeness
 
 assembly: &assembly
   <<: *default
@@ -51,13 +60,13 @@ tests:
     - name: ex_noreturn
       <<: *default
 
-    - name: ex_pointerReatribution
+    - name: ex_pointerReattribution
       <<: *default
 
-    - name: ex_pointerReatribution2
+    - name: ex_pointerReattribution2
       <<: *default
 
-    - name: ex_pointerReatribution3
+    - name: ex_pointerReattribution3
       <<: *default
 
     - name: ex_struct
